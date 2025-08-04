@@ -6,3 +6,4 @@
 /infrastructure/postgres/data
 /infrastructure/postgres/data
 infrastructure/airflow/config/airflow.cfg
+/infrastructure/airflow/dags/__pycache__
