@@ -7,3 +7,5 @@
 /infrastructure/postgres/data
 infrastructure/airflow/config/airflow.cfg
 /infrastructure/airflow/dags/__pycache__
+.DS_Store
+.vscode/launch.json
