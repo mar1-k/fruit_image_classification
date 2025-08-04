@@ -36,7 +36,7 @@ The environment is composed of several key services that work together to provid
 
 ## 💾 Dataset
 
-The model was trained on the **Fruit Classification Dataset**, which contains 100 different classes of fruits.
+The model was trained on this **Fruit Classification Dataset** https://www.kaggle.com/datasets/icebearogo/fruit-classification-dataset from Kaggle, which contains 100 different classes of fruits.
 
 The dataset is structured with a clear split for training, validation, and testing, providing a solid foundation for building and evaluating robust classification models.
 
