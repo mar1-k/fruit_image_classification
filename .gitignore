@@ -5,3 +5,4 @@
 /infrastructure/minio/data
 /infrastructure/postgres/data
 /infrastructure/postgres/data
+infrastructure/airflow/config/airflow.cfg
