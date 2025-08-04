@@ -4,3 +4,4 @@
 /infrastructure/airflow/logs
 /infrastructure/minio/data
 /infrastructure/postgres/data
+/infrastructure/postgres/data
