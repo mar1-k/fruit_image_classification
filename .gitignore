@@ -1,5 +1,5 @@
-/data
+/data/Fruit_dataset
+/data/archive.zip
 /infrastructure/postgres/data
-/infrastructure/airflow/logs
 /infrastructure/airflow/logs
 /infrastructure/minio/data
