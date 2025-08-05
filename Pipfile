@@ -16,6 +16,8 @@ notebook = "*"
 ipykernel = "*"
 matplotlib = "*"
 apache-airflow = "==3.0.3"
+airflow-provider-mlflow = "==1.1.0"
+mlflow = "==3.1.1"
 
 [dev-packages]
 

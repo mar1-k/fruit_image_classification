@@ -33,6 +33,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/airflow/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/airflow/data:/opt/airflow/data
     - ${AIRFLOW_PROJ_DIR:-.}/airflow/models:/opt/airflow/models
+    - /var/run/docker.sock:/var/run/docker.sock #This is wack and unsafe. But really cool!!! https://towardsdatascience.com/mlops-for-batch-processing-running-airflow-on-gpus-dc94367869c6/
   # This user variable is for Docker Compose to use when starting the container,
   # it's not an environment variable inside the container.
   user: "${AIRFLOW_UID:-50000}:0"
@@ -192,17 +193,17 @@ services:
         mkdir -p /sources/logs /sources/dags /sources/plugins
         chown -R "${AIRFLOW_UID}:0" /sources/{logs,dags,plugins}
         exec /entrypoint airflow version
-    # yamllint enable rule:line-length
     environment:
-      <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
       _PIP_ADDITIONAL_REQUIREMENTS: ''
+    env_file:
+      - .env
     user: "0:0"
     volumes:
-      - ${AIRFLOW_PROJ_DIR:-.}:/sources
+      - ${AIRFLOW_PROJ_DIR:-.}:/airflow/sources
 
   airflow-cli:
     <<: *airflow-common
@@ -244,7 +245,7 @@ services:
       bash -c "
       mc alias set minio http://minio:9000 minio_user minio_password &&
       if ! mc ls minio/mlflow; then
-        mc mb minio/mlflow
+        mc mb minio/mlflow && mc mb minio/data
       else
         echo 'mlflow bucket already exists'
       fi
