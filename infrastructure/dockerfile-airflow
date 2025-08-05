@@ -1,20 +1,32 @@
-# Use the specified Airflow 2.11.0 base image with an explicit Python version
+# Use the specified Airflow base image with an explicit Python version
 # This prevents ambiguity and ensures the environment matches the constraints.
 FROM apache/airflow:2.11.0-python3.11
 
-# Define the constraints file URL for Airflow 2.11.0 and Python 3.11
+# Define the constraints file URL for Airflow and Python
 # This is the key to ensuring all packages are compatible.
 ARG AIRFLOW_VERSION=2.11.0
 ARG PYTHON_VERSION=3.11
 ENV CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
 
-# Install providers using the constraints file to ensure compatibility.
+# Switch to the root user to install system-level packages
+USER root
+
+# Install system dependencies, then clean up to keep the image small
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        unzip \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Switch back to the airflow user for pip installations and runtime
+USER airflow
+
+# Install providers using the constraints file to ensure compatibility
 RUN pip install --no-cache-dir \
+    "apache-airflow-providers-amazon" \
     "airflow-provider-mlflow" \
     "mlflow-skinny" \
-    "astronomer-providers" \
-    "astro-sdk-python" \
-    "apache-airflow[amazon]" \
-    "apache-airflow-providers-amazon" \
     "docker" \
+    "astro-sdk-python" \
     --constraint "${CONSTRAINT_URL}"

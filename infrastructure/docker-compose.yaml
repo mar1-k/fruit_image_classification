@@ -237,19 +237,32 @@ services:
       - ./minio/data:/data
 
   minio-create-bucket:
-    image: minio/mc
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      bash -c "
-      mc alias set minio http://minio:9000 minio_user minio_password &&
-      if ! mc ls minio/mlflow; then
-        mc mb minio/mlflow && mc mb minio/data
-      else
-        echo 'mlflow bucket already exists'
-      fi
-      "
+      image: minio/mc
+      depends_on:
+        minio:
+          condition: service_healthy
+      # Using | for better multi-line script readability
+      entrypoint: |
+        bash -c "
+        # Wait a few seconds for MinIO to be fully available after the health check
+        sleep 5;
+        # Set up the alias for the MinIO server
+        mc alias set minio http://minio:9000 minio_user minio_password;
+        # Check for and create the 'mlflow' bucket
+        if ! mc ls minio/mlflow >/dev/null 2>&1; then
+          echo 'Creating bucket: mlflow'
+          mc mb minio/mlflow
+        else
+          echo 'Bucket mlflow already exists.'
+        fi
+        # Check for and create the 'data' bucket
+        if ! mc ls minio/data >/dev/null 2>&1; then
+          echo 'Creating bucket: data'
+          mc mb minio/data
+        else
+          echo 'Bucket data already exists.'
+        fi
+        "
 
   mlflow-server:
     build:
