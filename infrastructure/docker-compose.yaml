@@ -38,7 +38,7 @@ x-airflow-common:
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
     # MLflow integration
-    MLFLOW_TRACKING_URI: http://mlflow-server:5000
+    AIRFLOW_CONN_MLFLOW_DEFAULT: 'http://mlflow-server:5000'
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/airflow/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/airflow/logs:/opt/airflow/logs
@@ -287,7 +287,6 @@ services:
       - AWS_SECRET_ACCESS_KEY=minio_password
     command: >
       bash -c "
-      pip install psycopg2-binary &&
       mlflow server 
       --backend-store-uri postgresql://postgres:postgres@postgres:5432/mlflow
       --default-artifact-root s3://mlflow/ 
