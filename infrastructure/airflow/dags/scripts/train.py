@@ -90,30 +90,49 @@ def get_dataloaders(local_data_path: str, transform: transforms.Compose, batch_s
     logging.info(f"Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
     return train_loader, val_loader
 
-# --- Training and Evaluation Loop (unchanged) ---
+# --- Training and Evaluation Loop (MODIFIED) ---
 def train(model, train_loader, val_loader, epochs, learning_rate, device):
-    # This function is unchanged.
+    """
+    Runs the training and validation loop.
+    Explicit logging is added back for visibility in Airflow logs,
+    while MLflow autologging continues to track metrics in the background.
+    """
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.classifier.parameters(), lr=learning_rate)
     model.to(device)
     for epoch in range(epochs):
         model.train()
-        for inputs, labels in train_loader:
+        running_loss = 0.0
+        for i, (inputs, labels) in enumerate(train_loader):
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+            
+            running_loss += loss.item()
+            if i > 0 and i % 100 == 0:
+                logging.info(f'[Epoch {epoch + 1}, Batch {i}] loss: {running_loss / 100:.3f}')
+                running_loss = 0.0
+
+        # Validation phase
         model.eval()
+        correct = 0
+        total = 0
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
-                model(inputs)
-        logging.info(f'Epoch {epoch + 1} complete.')
+                outputs = model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+        
+        accuracy = 100 * correct / total
+        logging.info(f'Epoch {epoch + 1} - Validation Accuracy: {accuracy:.2f}%')
 
 
-# --- Main Execution (MODIFIED) ---
+# --- Main Execution (unchanged) ---
 if __name__ == "__main__":
     try:
         config = get_config()
