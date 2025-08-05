@@ -1,6 +1,10 @@
 # Start from the official Pytorch image with CUDA support
 FROM pytorch/pytorch:2.7.1-cuda12.6-cudnn9-runtime
 
+
+RUN apt-get update && \
+    apt-get install -y git
+
 # Install necessary Python packages for data handling and S3 access
 # s3fs requires aiobotocore
 RUN pip install --no-cache-dir \

@@ -11,6 +11,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
+# NEW: Import scikit-learn for F1 score calculation
+from sklearn.metrics import f1_score
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -93,16 +95,16 @@ def get_dataloaders(local_data_path: str, transform: transforms.Compose, batch_s
 # --- Training and Evaluation Loop (MODIFIED) ---
 def train(model, train_loader, val_loader, epochs, learning_rate, device):
     """
-    Runs the training and validation loop.
-    Explicit logging is added back for visibility in Airflow logs,
-    while MLflow autologging continues to track metrics in the background.
+    Runs the training and validation loop, now with explicit metric logging for MLflow.
     """
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.classifier.parameters(), lr=learning_rate)
     model.to(device)
+    
     for epoch in range(epochs):
+        # Training phase
         model.train()
-        running_loss = 0.0
+        train_loss = 0.0
         for i, (inputs, labels) in enumerate(train_loader):
             inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
@@ -110,26 +112,47 @@ def train(model, train_loader, val_loader, epochs, learning_rate, device):
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-            
-            running_loss += loss.item()
-            if i > 0 and i % 100 == 0:
-                logging.info(f'[Epoch {epoch + 1}, Batch {i}] loss: {running_loss / 100:.3f}')
-                running_loss = 0.0
+            train_loss += loss.item()
+        
+        avg_train_loss = train_loss / len(train_loader)
+        logging.info(f'[Epoch {epoch + 1}] Training Loss: {avg_train_loss:.3f}')
+        mlflow.log_metric('train_loss', avg_train_loss, step=epoch)
 
         # Validation phase
         model.eval()
+        val_loss = 0.0
         correct = 0
         total = 0
+        all_preds = []
+        all_labels = []
+        
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
                 outputs = model(inputs)
+                
+                # Calculate validation loss
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
+                
+                # Calculate accuracy
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+                
+                # Collect predictions and labels for F1 score
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
         
+        # Calculate and log metrics for the epoch
+        avg_val_loss = val_loss / len(val_loader)
         accuracy = 100 * correct / total
-        logging.info(f'Epoch {epoch + 1} - Validation Accuracy: {accuracy:.2f}%')
+        f1 = f1_score(all_labels, all_preds, average='weighted')
+        
+        logging.info(f'Epoch {epoch + 1} - Validation Loss: {avg_val_loss:.3f}, Accuracy: {accuracy:.2f}%, F1-Score: {f1:.3f}')
+        mlflow.log_metric('validation_loss', avg_val_loss, step=epoch)
+        mlflow.log_metric('validation_accuracy', accuracy, step=epoch)
+        mlflow.log_metric('validation_f1_score', f1, step=epoch)
 
 
 # --- Main Execution (unchanged) ---
@@ -143,7 +166,6 @@ if __name__ == "__main__":
         mlflow.set_experiment(config['mlflow_experiment_name'])
         mlflow.pytorch.autolog()
 
-        # Pass the run_name if it exists
         with mlflow.start_run(run_name=config.get('mlflow_run_name')) as run:
             logging.info(f"Started MLflow run: {run.info.run_id}")
             
