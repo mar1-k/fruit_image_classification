@@ -10,4 +10,3 @@ infrastructure/airflow/config/airflow.cfg
 .DS_Store
 .vscode/launch.json
 /data/dataset
-data/dataset.zip
