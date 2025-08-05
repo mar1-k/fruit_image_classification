@@ -14,5 +14,7 @@ RUN pip install --no-cache-dir \
     "mlflow-skinny" \
     "astronomer-providers" \
     "astro-sdk-python" \
+    "apache-airflow[amazon]" \
+    "apache-airflow-providers-amazon" \
     "docker" \
     --constraint "${CONSTRAINT_URL}"
