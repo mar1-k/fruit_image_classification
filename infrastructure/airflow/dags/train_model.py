@@ -3,7 +3,6 @@ import pendulum
 from airflow.models.dag import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.models.param import Param
-from docker.types import Mount
 
 DOCKER_IMAGE = "my-pytorch-trainer:latest"
 
@@ -38,7 +37,7 @@ with DAG(
             "S3_BUCKET": "{{ params.s3_bucket }}",
             "DATA_PREFIX": "{{ params.data_prefix }}",
             # MLflow Configuration
-            "MLFLOW_TRACKING_URI": "http://mlflow-tracking-server:5000",
+            "MLFLOW_TRACKING_URI": "http://mlflow-server:5000",
             "MLFLOW_EXPERIMENT_NAME": "Fruit Classification",
             # Hyperparameters
             "NUM_EPOCHS": "{{ params.num_epochs }}",
