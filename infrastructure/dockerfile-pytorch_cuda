@@ -12,5 +12,3 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 
 COPY airflow/dags/scripts/train.py .
-
-COPY airflow/data/dataset /data/dataset

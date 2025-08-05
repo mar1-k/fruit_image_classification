@@ -3,6 +3,8 @@ import json
 import torch
 import boto3
 import logging
+import concurrent.futures
+from functools import partial
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
@@ -32,28 +34,41 @@ def get_config():
     config['class_mapping'] = json.loads(config['class_mapping_str'])
     return config
 
-# --- NEW: Function to download data from S3 ---
-def download_s3_directory(s3_client, bucket_name, s3_prefix, local_dir):
-    """Recursively downloads a directory from S3."""
-    logging.info(f"Downloading data from s3://{bucket_name}/{s3_prefix} to {local_dir}")
+# --- NEW: Function for parallel S3 download ---
+def download_s3_directory_parallel(s3_client, bucket_name, s3_prefix, local_dir, max_workers=8):
+    """Recursively downloads a directory from S3 in parallel using a thread pool."""
+    logging.info(f"Starting parallel download from s3://{bucket_name}/{s3_prefix} to {local_dir} with {max_workers} workers.")
+    
+    # Get a list of all objects to download
+    keys_to_download = []
     paginator = s3_client.get_paginator('list_objects_v2')
     for page in paginator.paginate(Bucket=bucket_name, Prefix=s3_prefix):
         if "Contents" in page:
             for obj in page["Contents"]:
-                key = obj["Key"]
-                # Don't download the directory placeholder itself
-                if key.endswith('/'):
-                    continue
-                
-                # Create local directory structure
-                relative_path = os.path.relpath(key, s3_prefix)
-                local_file_path = os.path.join(local_dir, relative_path)
-                local_file_dir = os.path.dirname(local_file_path)
-                os.makedirs(local_file_dir, exist_ok=True)
-                
-                # Download the file
-                s3_client.download_file(bucket_name, key, local_file_path)
-    logging.info("Download complete.")
+                if not obj["Key"].endswith('/'): # Exclude folder placeholders
+                    keys_to_download.append(obj["Key"])
+
+    # Define a worker function to download a single file
+    def download_worker(s3_key):
+        relative_path = os.path.relpath(s3_key, s3_prefix)
+        local_file_path = os.path.join(local_dir, relative_path)
+        os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+        s3_client.download_file(bucket_name, s3_key, local_file_path)
+
+    # Use a ThreadPoolExecutor to download files in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Create a future for each download task
+        future_to_key = {executor.submit(download_worker, key): key for key in keys_to_download}
+        
+        for future in concurrent.futures.as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                future.result() # Check for exceptions
+            except Exception as exc:
+                logging.error(f'{key} generated an exception: {exc}')
+                raise
+    
+    logging.info(f"Parallel download of {len(keys_to_download)} files complete.")
 
 
 # --- Model Definition ---
@@ -71,18 +86,14 @@ def create_model(num_classes: int):
     logging.info(f"Model created. Number of classes: {num_classes}")
     return model
 
-# --- Data Loading (MODIFIED) ---
+# --- Data Loading ---
 def get_dataloaders(local_data_path: str, transform: transforms.Compose, batch_size: int):
     """Creates DataLoaders for training and validation from a LOCAL path."""
     logging.info(f"Loading datasets from local path: {local_data_path}")
-    
-    # ImageFolder now points to the local directory where data was downloaded
     train_dataset = datasets.ImageFolder(root=os.path.join(local_data_path, 'train'), transform=transform)
     val_dataset = datasets.ImageFolder(root=os.path.join(local_data_path, 'val'), transform=transform)
-    
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    
     logging.info(f"Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
     return train_loader, val_loader
 
@@ -136,14 +147,14 @@ if __name__ == "__main__":
         )
         local_data_dir = "/tmp/data"
 
-        # 3. Download data from S3
-        download_s3_directory(s3_client, config['s3_bucket'], config['data_prefix'], local_data_dir)
+        # 3. Download data from S3 (now in parallel)
+        download_s3_directory_parallel(s3_client, config['s3_bucket'], config['data_prefix'], local_data_dir)
 
         # 4. Model
         num_classes = len(config['class_mapping'])
         model = create_model(num_classes)
         
-        # 5. Data Loaders (now pointing to local data)
+        # 5. Data Loaders
         data_transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),

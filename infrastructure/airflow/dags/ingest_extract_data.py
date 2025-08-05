@@ -116,7 +116,6 @@ with DAG(
     unzip_task = BashOperator(
         task_id='unzip_dataset',
         bash_command=f'unzip -o {LOCAL_ZIP_PATH} -d {LOCAL_DATA_PATH}/',
-        trigger_rule='one_success'
     )
     
     upload_to_s3_task = PythonOperator(
@@ -132,18 +131,24 @@ with DAG(
         trigger_rule='one_success'
     )
 
-    # --- NEW: Task to trigger the next DAG ---
     trigger_preprocessing_dag = TriggerDagRunOperator(
         task_id="trigger_preprocessing_dag",
-        trigger_dag_id="generate_class_mapping",
+        trigger_dag_id="preprocess_generate_class_mapping",
+        # This task should run if any of its parents succeed, making it the final join point.
+        trigger_rule='one_success'
     )
 
-    # --- Set Task Dependencies ---
+    # --- Set Task Dependencies (Corrected) ---
     check_s3_task >> [skip_ingestion_task, check_local_dir_task]
+    
     check_local_dir_task >> [upload_to_s3_task, check_local_zip_task]
+    
     check_local_zip_task >> [unzip_task, download_task]
+    
     download_task >> unzip_task
+    
     unzip_task >> upload_to_s3_task
     
-    # After the upload is complete, trigger the next DAG in the pipeline
+    # now lead to the final trigger task.
+    skip_ingestion_task >> trigger_preprocessing_dag
     upload_to_s3_task >> trigger_preprocessing_dag
