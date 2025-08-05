@@ -49,7 +49,6 @@ def generate_class_mapping(conn_id: str, bucket: str, prefix: str) -> dict:
 with DAG(
     dag_id="preprocess_generate_class_mapping",
     start_date=datetime(2025, 8, 5),
-    schedule_interval="@once",
     catchup=False,
     is_paused_upon_creation=False,
     doc_md="""

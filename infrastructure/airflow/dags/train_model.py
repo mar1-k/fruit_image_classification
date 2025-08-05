@@ -12,6 +12,7 @@ with DAG(
     start_date=pendulum.datetime(2023, 1, 1, tz="UTC"),
     schedule=None,
     catchup=False,
+    is_paused_upon_creation=False,
     params={
         "s3_bucket": Param("data", type="string"),
         "data_prefix": Param("dataset/", type="string"),
