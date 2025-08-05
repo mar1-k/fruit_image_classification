@@ -8,6 +8,7 @@ from airflow.models.dag import DAG
 from airflow.operators.bash import BashOperator
 from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 # --- Define Constants for easy configuration ---
@@ -29,7 +30,7 @@ default_args = {
     'retries': 1,
 }
 
-# --- MODIFIED: Python function for the parallel upload task ---
+# --- Python function for the parallel upload task ---
 def _upload_directory_parallel(local_directory, s3_prefix, bucket_name, conn_id, max_workers=20):
     """
     Recursively walks a local directory and uploads all files to S3 in parallel
@@ -38,39 +39,30 @@ def _upload_directory_parallel(local_directory, s3_prefix, bucket_name, conn_id,
     s3_hook = S3Hook(aws_conn_id=conn_id)
     print(f"Starting parallel upload of directory '{local_directory}' to 's3://{bucket_name}/{s3_prefix}' with {max_workers} workers.")
 
-    # Create a partial function for the worker thread. This pre-fills some arguments
-    # to the load_file method, making it easier to call from the thread pool.
     upload_worker = partial(
         s3_hook.load_file, bucket_name=bucket_name, replace=True
     )
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = []
-        # Walk the directory to find all files
         for root, _, files in os.walk(local_directory):
             for file in files:
                 local_path = os.path.join(root, file)
                 relative_path = os.path.relpath(local_path, local_directory)
                 s3_key = os.path.join(s3_prefix, relative_path).replace("\\", "/")
-
-                # Submit the upload task to the thread pool and store the future
                 futures.append(
                     executor.submit(upload_worker, filename=local_path, key=s3_key)
                 )
-
-        # Wait for all futures to complete and check for exceptions
         for future in concurrent.futures.as_completed(futures):
             try:
-                # result() will be None on success but will raise an exception on failure
                 future.result()
             except Exception as e:
                 print(f"Upload failed with an exception: {e}")
-                # Re-raise the exception to make the Airflow task fail
                 raise e
     print(f"Parallel upload of {len(futures)} files complete.")
 
 
-# --- Branching Task Functions (unchanged) ---
+# --- Branching Task Functions ---
 
 @task.branch(task_id="check_if_data_exists_in_s3")
 def check_s3_data_existence(conn_id, bucket, prefix):
@@ -99,12 +91,12 @@ def check_local_zip_existence(local_zip_path):
 with DAG(
     dag_id='ingest_dataset_to_s3',
     default_args=default_args,
-    description='A DAG to download and upload fruit images with multiple checks.',
+    description='A DAG to ingest data and trigger the preprocessing pipeline.',
     schedule_interval='@once',
     start_date=datetime(2025, 8, 5),
     is_paused_upon_creation=False,
     catchup=False,
-    tags=['data_engineering', 'ingestion', 's3', 'images'],
+    tags=['pipeline-starter', 'ingestion', 's3'],
 ) as dag:
 
     # --- Task Definitions ---
@@ -127,23 +119,31 @@ with DAG(
         trigger_rule='one_success'
     )
     
-    # MODIFIED: This task now calls the parallel upload function
     upload_to_s3_task = PythonOperator(
         task_id='upload_images_to_s3',
-        python_callable=_upload_directory_parallel, # Changed to the parallel function
+        python_callable=_upload_directory_parallel,
         op_kwargs={
             'local_directory': LOCAL_UNZIPPED_PATH,
             's3_prefix': S3_DEST_KEY,
             'bucket_name': S3_BUCKET,
             'conn_id': S3_CONN_ID,
-            'max_workers': 20  # Tune this number based on your worker's resources
+            'max_workers': 20
         },
         trigger_rule='one_success'
     )
 
-    # --- Set Task Dependencies (unchanged) ---
+    # --- NEW: Task to trigger the next DAG ---
+    trigger_preprocessing_dag = TriggerDagRunOperator(
+        task_id="trigger_preprocessing_dag",
+        trigger_dag_id="generate_class_mapping",
+    )
+
+    # --- Set Task Dependencies ---
     check_s3_task >> [skip_ingestion_task, check_local_dir_task]
     check_local_dir_task >> [upload_to_s3_task, check_local_zip_task]
     check_local_zip_task >> [unzip_task, download_task]
     download_task >> unzip_task
     unzip_task >> upload_to_s3_task
+    
+    # After the upload is complete, trigger the next DAG in the pipeline
+    upload_to_s3_task >> trigger_preprocessing_dag

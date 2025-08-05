@@ -5,6 +5,7 @@ from datetime import datetime
 from airflow.decorators import task
 from airflow.models.dag import DAG
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
 # --- Define Constants for the S3 data location ---
 S3_CONN_ID = "minio_conn"
@@ -52,15 +53,27 @@ with DAG(
     catchup=False,
     is_paused_upon_creation=False,
     doc_md="""
-    ### Generate Class Mapping DAG
+    ### Generate Class Mapping and Trigger Training
 
-    This DAG scans the S3 directory structure of the training data to create a
-    class-to-index mapping. This mapping is essential for the model training
-    process and is saved to XComs for downstream tasks.
+    This DAG performs two steps:
+    1.  Scans the S3 directory structure of the training data to create a class-to-index mapping.
+    2.  Triggers the `model_training_dag`, passing the mapping to it for use in training.
     """,
     tags=["preprocessing", "ml"],
 ) as dag:
-    # Instantiate the task, passing in our constants
-    generate_class_mapping(
+    # 1. Instantiate the task to generate the mapping
+    class_mapping_task = generate_class_mapping(
         conn_id=S3_CONN_ID, bucket=S3_BUCKET, prefix=TRAIN_DATA_PREFIX
     )
+
+    # 2. Add the task to trigger the next DAG in the pipeline
+    trigger_training_dag = TriggerDagRunOperator(
+        task_id="trigger_model_training",
+        trigger_dag_id="train_model",
+        # THE FIX IS HERE: We pass the task object directly, not its .output attribute.
+        # Airflow knows how to resolve this XComArg automatically.
+        conf={"class_mapping": class_mapping_task},
+    )
+
+    # Set the dependency
+    class_mapping_task >> trigger_training_dag
