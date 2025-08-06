@@ -16,4 +16,12 @@ RUN pip install --no-cache-dir \
 # Create an /app directory for our code
 WORKDIR /app
 
+#Load the training script
 COPY airflow/dags/scripts/train.py .
+
+#Copying data into the container in order to speed up testing time
+COPY airflow/data/dataset/ ./dataset/
+
+#Preload efficient net
+RUN python -c "from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights; print('Downloading EfficientNet_B0 weights...'); _ = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT); print('Weights cached.')"
+
