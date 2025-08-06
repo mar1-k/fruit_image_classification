@@ -158,16 +158,13 @@ if __name__ == "__main__":
     try:
         config = get_config()
 
-        # THE FIX IS HERE: Set the standard Boto3/MLflow environment variables
-        # from the custom ones passed by the DAG. This ensures MLflow's internal
-        # S3 client can find the credentials for artifact logging.
         os.environ['AWS_ACCESS_KEY_ID'] = config['s3_access_key']
         os.environ['AWS_SECRET_ACCESS_KEY'] = config['s3_secret_key']
         os.environ['MLFLOW_S3_ENDPOINT_URL'] = config['s3_endpoint_url']
         
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logging.info(f"Using device: {device}")
-        local_data_dir = "/data/dataset"
+        local_data_dir = "/app/dataset/"
 
         mlflow.set_tracking_uri(config['mlflow_tracking_uri'])
         mlflow.set_experiment(config['mlflow_experiment_name'])
@@ -183,11 +180,11 @@ if __name__ == "__main__":
             mlflow.log_param('batch_size', config['batch_size'])
             mlflow.log_param('learning_rate', config['learning_rate'])
             
+            # THE FIX IS HERE: Check for the pre-loaded data directory before downloading.
             if os.path.isdir(local_data_dir):
                 logging.info(f"Found pre-loaded data at {local_data_dir}. Skipping S3 download.")
             else:
                 logging.warning(f"Local data not found at {local_data_dir}. Attempting to download from S3.")
-                # Boto3 will now automatically pick up credentials from the environment
                 s3_client = boto3.client('s3', endpoint_url=config['s3_endpoint_url'])
                 download_s3_directory_parallel(s3_client, config['s3_bucket'], config['data_prefix'], local_data_dir)
 
