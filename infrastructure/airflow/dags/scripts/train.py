@@ -5,6 +5,7 @@ import boto3
 import mlflow
 import mlflow.pytorch
 import logging
+import sys # Import the sys module
 import concurrent.futures
 from functools import partial
 from torch import nn
@@ -13,8 +14,26 @@ from torchvision import datasets, transforms
 from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
 from sklearn.metrics import f1_score
 
-# --- Setup Logging ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- THE FIX IS HERE: Setup Verbose, Unbuffered Logging ---
+# Get the root logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Remove any existing handlers to prevent conflicts with MLflow's handlers
+for handler in logger.handlers[:]:
+    logger.removeHandler(handler)
+
+# Create a new handler that streams directly to standard output
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+
+# Create a formatter and add it to the handler
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# Add the new, unbuffered handler to the root logger
+logger.addHandler(handler)
+
 
 # --- Configuration from Environment Variables ---
 def get_config():
@@ -137,23 +156,26 @@ def train(model, train_loader, val_loader, epochs, learning_rate, device):
 # --- Main Execution ---
 if __name__ == "__main__":
     try:
-        # 1. Configuration
         config = get_config()
+
+        # THE FIX IS HERE: Set the standard Boto3/MLflow environment variables
+        # from the custom ones passed by the DAG. This ensures MLflow's internal
+        # S3 client can find the credentials for artifact logging.
+        os.environ['AWS_ACCESS_KEY_ID'] = config['s3_access_key']
+        os.environ['AWS_SECRET_ACCESS_KEY'] = config['s3_secret_key']
+        os.environ['MLFLOW_S3_ENDPOINT_URL'] = config['s3_endpoint_url']
+        
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logging.info(f"Using device: {device}")
-
-        # 2. Define the local data path inside the container.
         local_data_dir = "/data/dataset"
 
-        # 3. Set up MLflow
         mlflow.set_tracking_uri(config['mlflow_tracking_uri'])
         mlflow.set_experiment(config['mlflow_experiment_name'])
-        mlflow.pytorch.autolog()
+        mlflow.pytorch.autolog(log_models=True, disable=True, exclusive=True)
 
         with mlflow.start_run(run_name=config.get('mlflow_run_name')) as run:
             logging.info(f"Started MLflow run: {run.info.run_id}")
             
-            # THE FIX IS HERE: Explicitly log all important parameters
             logging.info("Logging parameters to MLflow...")
             mlflow.log_param('model_name', 'efficientnet_b0')
             mlflow.log_param('num_classes', len(config['class_mapping']))
@@ -165,18 +187,16 @@ if __name__ == "__main__":
                 logging.info(f"Found pre-loaded data at {local_data_dir}. Skipping S3 download.")
             else:
                 logging.warning(f"Local data not found at {local_data_dir}. Attempting to download from S3.")
-                s3_client = boto3.client('s3', endpoint_url=config['s3_endpoint_url'], aws_access_key_id=config['s3_access_key'], aws_secret_access_key=config['s3_secret_key'])
+                # Boto3 will now automatically pick up credentials from the environment
+                s3_client = boto3.client('s3', endpoint_url=config['s3_endpoint_url'])
                 download_s3_directory_parallel(s3_client, config['s3_bucket'], config['data_prefix'], local_data_dir)
 
-            # 4. Model and Data Loaders
             model = create_model(len(config['class_mapping']))
             data_transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
             train_loader, val_loader = get_dataloaders(local_data_dir, data_transform, config['batch_size'])
 
-            # 5. Training
             train(model, train_loader, val_loader, config['num_epochs'], config['learning_rate'], device)
 
-            # 6. Confirm Model Upload
             logging.info("Training finished. Model artifacts have been automatically saved to the MLflow artifact store (S3).")
 
     except Exception as e:
